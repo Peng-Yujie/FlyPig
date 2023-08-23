@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>flypig</title>
+  <style>
+    #container {
+      font-family: Arial;
+      align-items: center;
+      text-align: center;
+    }
+
+    #header {
+      width: 600px;
+      margin: auto;
+      display: flex;
+      align-items: center;
+    }
+
+    h1 {
+      width: 100%;
+    }
+
+    #musicbutton {
+      width: 20px;
+      height: 20px;
+      float: right;
+      transition: all 0.5s ease 0.1s;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="container">
+    <div id="header">
+      <h1>FLYPIG</h1>
+      <img id="musicbutton" class="music" src="image/music.png" alt="musicbutton">
+    </div>
+    <canvas id="myCanvas" width="600" height="400" style="border: 2px solid #aeaeae;"></canvas>
+    <div id="copyright">Yujie Peng &copy; 2023</div>
+    <audio class="sounds" id="sound level up" src="audio/sound_level_up.wav"></audio>
+    <audio class="sounds" id="sound move" src="audio/sound_move.wav"></audio>
+    <audio class="sounds" id="sound hit" src="audio/sound_hit.wav"></audio>
+    <audio class="sounds" id="sound pause" src="audio/sound_pause.wav"></audio>
+    <audio class="sounds" id="bgmusic" src="audio/bgmusic.ogg" loop></audio>
+  </div>
+
+  <script>
+    /*
+    FLYPIG
+    author: @Yujie
+    vesion: 1.0
+    */
+    let c = document.getElementById('myCanvas');
+    let ctx = c.getContext('2d');
+    let timerID = null;
+    document.addEventListener('keydown', keyAction);
+
+    //audio files & switch
+    let soundLevelUp = document.getElementById('sound level up');
+    let soundMove = document.getElementById('sound move');
+    let soundHit = document.getElementById('sound hit');
+    let soundPause = document.getElementById('sound pause');
+    let bgMusic = document.getElementById('bgmusic');
+    let mBtn = document.getElementById('musicbutton');
+    mBtn.addEventListener('click', musicSW);
+    function musicSW() {
+      if (bgMusic.paused && mBtn.classList == 'music') {
+        mBtn.src = 'image/music-off.png';
+        mBtn.classList.add('off');
+      } else if (bgMusic.paused && mBtn.classList != 'music') {
+        bgMusic.play();
+        mBtn.src = 'image/music.png';
+        mBtn.classList.remove('off');
+      } else {
+        bgMusic.pause();
+        mBtn.src = 'image/music-off.png';
+        mBtn.classList.add('off');
+      }
+    }
+
+    //Game basic settings
+    let Game = {
+      count: 0,//record game times
+      record: null,//record best score
+      gravity: 2,//gravity simulation
+      time: 1,//time simulation
+      move: 5,//move spend of the walls
+      level: 1,
+      start: function () {
+        if (mBtn.classList == 'music') {
+          soundLevelUp.play();
+        }
+        if (timerID == null) {
+          clearInterval(timerWelcome);//stop opening animation
+          timerWelcome = null;
+          createWalls(5);//create new walls for the current level
+          createPlayer();//create a new player
+          timerID = setInterval(flyPig, 100);//start game
+          console.log('Game start: ' + this.count);
+        }
+      },
+      pause: function () {
+        if (mBtn.classList == 'music') {
+          soundPause.play();
+        }
+        clearInterval(timerID);
+        console.log('Game paused: ' + this.count);
+        //alert pause
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(180, 160, 240, 100);
+        ctx.fillStyle = 'rgb(' + Math.floor(Math.random() * 256) + ',' + Math.floor(Math.random() * 256) + ',' + Math.floor(Math.random() * 256) + ')';
+        ctx.fill();
+        ctx.font = 'italic bold 50px Arial';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('Pause...', 210, 220);
+        ctx.font = 'italic 20px Arial';
+        ctx.fillText('Press Space to Continue', 190, 250);
+        ctx.restore();
+      },
+      levelUp: function () {
+        if (mBtn.classList == 'music') {
+          soundLevelUp.play();
+        }
+        //Once the player advances in levels, the speed of move and fall increase
+        createWalls(5);
+        this.level += 1;
+        console.log('Game ' + this.count + ' Level up! The current level is ' + this.level);
+        this.gravity = this.level + 1;
+        this.move = this.level * 2 + 3;
+      },
+      reset: function () {
+        clearInterval(timerID);
+        timerID = null;
+        //return to the initial settings
+        this.count += 1;
+        this.gravity = 2;
+        this.time = 1;
+        this.move = 5;
+        this.level = 1;
+        walls = [];
+      },
+      over: function () {
+        //end the game and show 'game over'
+        ctx.clearRect(0, 0, 600, 400);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, 600, 400);
+        ctx.fillStyle = '#aeaeae';
+        ctx.fill();
+        welcomeWalls();
+        ctx.font = 'italic bold 50px Arial';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('Game Over!', 160, 200);
+        ctx.font = 'italic 20px Arial';
+        ctx.fillText('Press Space to Restart', 200, 240);
+        ctx.fillStyle = 'rgb(' + Math.floor(Math.random() * 256) + ',' + Math.floor(Math.random() * 256) + ',' + Math.floor(Math.random() * 256) + ')';
+        ctx.fillText('Your score: ' + players[players.length - 1].score, 240, 280);
+        ctx.restore();
+      },
+    }
+
+    //Player basic settings
+    let players = [];
+    function createPlayer() {
+      players.push(new Player(Game.count + 1, 200, 200));
+    }
+    function Player(id, x, y) {
+      this.id = 'Player' + id;
+      this.img = new Image();
+      this.img.src = 'image/piggy.png';//image of the flying pig
+      this.x = x;
+      this.y = y;
+      this.up = Math.random() * 10 + 20;//up move distance once
+      this.score = 0;
+      this.movement = 0;//number of passed walls
+      this.draw = function () {
+        //draw a frame of the player
+        ctx.save();
+        ctx.beginPath();
+        ctx.drawImage(this.img, this.x, this.y);
+        ctx.restore();
+      }
+      this.fly = function () {
+        if (mBtn.classList == 'music') {
+          soundMove.play();
+        }
+        //stop falling and move up
+        clearInterval(timerID);
+        this.y -= this.up;
+        Game.time = 1;
+        timerID = setInterval(flyPig, 100);
+      }
+      this.fall = function () {
+        players[players.length - 1].y += 0.1 * Game.gravity * Game.time ** 2;//simulation of free fall by using G and t
+      }
+    }
+
+    //Walls basic settings
+    let walls = [];
+    function createWalls(num) {
+      for (let i = 1; i <= num; i++) {
+        let id = 'L' + Game.level + 'W' + i;
+        let x = 450 + 150 * i;//start from the right border
+        let y = 0;
+        walls.push(new Wall(id, x, y));
+      }
+    }
+    function Wall(id, x, y) {
+      this.id = id;
+      this.x = x;
+      this.y = y;
+      this.width = 30;
+      this.height = 150 + 200 * (Math.random() - 0.5);
+      this.gap = 150;
+      this.pass = false;//confirm if the player has passed
+      this.color = 'rgb(' + Math.floor(Math.random() * 256) + ',' + Math.floor(Math.random() * 256) + ',' + Math.floor(Math.random() * 256) + ')';
+      this.drawUp = function () {
+        ctx.save();
+        ctx.beginPath();
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.restore();
+      }
+      this.drawDown = function () {
+        ctx.save();
+        ctx.beginPath();
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.height + this.gap, this.width, c.height - this.height - this.gap);
+        ctx.restore();
+      }
+      this.move = function () {
+        this.x = this.x - Game.move;
+      };
+    }
+
+    //Draw a frame of the game
+    function flyPig() {
+      ctx.clearRect(0, 0, 600, 400);
+      ctx.save();
+      ctx.beginPath();
+      //draw the walls
+      for (let i = 0; i < walls.length; i++) {
+        walls[i].drawUp();
+        walls[i].drawDown();
+        walls[i].move();
+      }
+      //draw the player
+      players[players.length - 1].draw();
+      drawHints();
+      ctx.restore();
+      countScore();
+      players[players.length - 1].fall();
+      Game.time += 1;
+    }
+
+    //Keyboard control
+    function keyAction(e) {
+      if (timerID != null) {
+        //press space to keep flying, left or right movement is also allowed
+        if (e.key == ' ' && e.type == 'keydown') {
+          players[players.length - 1].fly();
+        } else if (e.key == 'ArrowLeft' && e.type == 'keydown') {
+          players[players.length - 1].x -= 5;
+        } else if (e.key == 'ArrowRight' && e.type == 'keydown') {
+          players[players.length - 1].x += 5;
+        } else if (e.key == 'Escape' && e.type == 'keydown') {
+          Game.pause();
+        }
+      } else if (e.key == ' ' && e.type == 'keydown' && timerWelcome != null) {
+        Game.start();
+      }
+      //start game with music if the music switch is on
+      if (mBtn.classList == 'music') {
+        bgMusic.play();
+      }
+    }
+
+    //Count score until game over
+    function countScore() {
+      //level up when the player has passed all the current walls
+      if (players[players.length - 1].movement == walls.length) {
+        Game.levelUp();
+      }
+      for (let i = 0; i < walls.length; i++) {
+        /*
+        if the player meets the wall, record the score, end and reset;
+        if the player passed, score increases
+        */
+        if (players[players.length - 1].x + 50 > walls[i].x && players[players.length - 1].x < walls[i].x + walls[i].width && (players[players.length - 1].y <= walls[i].height || players[players.length - 1].y + 76 >= walls[i].height + walls[i].gap) || players[players.length - 1].y > c.height) {
+          Game.reset();
+          if (mBtn.classList == 'music') {
+            soundHit.play();
+          }
+          if (Game.record <= players[players.length - 1].score) {
+            Game.record = players[players.length - 1].score;
+            console.log('New Record: ' + Game.record);
+          }
+          console.log('Player\'s score: ' + players[players.length - 1].score);
+          timerWelcome = setInterval(Game.over, 200);//ending animation
+        } else if (timerID != null && walls[i].pass == false && walls[i].x + walls[i].width < players[players.length - 1].x) {
+          walls[i].pass = true;
+          /*
+          1 point for 1 wall in level 1
+          2 points for 1 wall in level 2
+          3 points for 1 wall in level 3
+          ...
+          */
+          players[players.length - 1].score = (i + 1) * Game.level - 0.5 * walls.length * (Game.level - 1);
+          players[players.length - 1].movement = i + 1;
+          console.log('move:' + players[players.length - 1].movement);
+        }
+      }
+    }
+
+    //Starter screen
+    let timerWelcome = setInterval(welCome, 200);
+    document.addEventListener('DOMContentLoaded', welCome);
+    function welCome() {
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.save();
+      ctx.beginPath();
+      welcomeWalls();
+      ctx.font = 'italic bold 50px Arial';
+      ctx.fillText('FlyPig!', 220, 200);
+      ctx.font = 'italic 20px Arial';
+      ctx.fillText('Press Space to Start Game', 180, 240);
+      ctx.restore();
+    }
+    //create walls of starter screen
+    function welcomeWalls() {
+      for (let i = 0; i <= 30; i++) {
+        let welcomeId = 'welcome' + i;
+        let welcomeX = 5 + 20 * i;
+        let welComeY = 300 + 100 * Math.random();
+        let welcomeWall = new Wall(welcomeId, welcomeX, welComeY);
+        welcomeWall.width = 10;
+        welcomeWall.height = 100;
+        welcomeWall.drawUp();
+      }
+    }
+    //show the current level, score and tips
+    function drawHints() {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, c.width, 30);
+      ctx.rect(0, c.height - 30, c.width, 30);
+      ctx.fillStyle = '#E6ACD4';
+      ctx.fill();
+      ctx.font = 'bold 20px Arial';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Level: ' + Game.level, 10, 20);
+      ctx.font = '16px Arial';
+      ctx.fillText('Socre: ' + players[players.length - 1].score, 250, 20);
+      //the current level, score and record
+      if (Game.record != null && players[players.length - 1].score <= Game.record) {
+        ctx.fillText('Best: ' + Game.record, 500, 20);
+      } else if (players[players.length - 1].score > Game.record) {
+        ctx.save();
+        ctx.fillStyle = 'red';
+        ctx.fillText('Best: ' + players[players.length - 1].score, 500, 20);
+        ctx.restore();
+      }
+      //tips
+      if (players[players.length - 1].movement % 5 == 0 && Game.level > 1) {
+        ctx.fillText('Level up! Congratulations!', 10, c.height - 10);
+      } else {
+        if (timerID % 50 < 10) {
+          ctx.fillText('Press Space to fly through the walls', 10, c.height - 10);
+        } else if (timerID % 50 < 20 && timerID % 50 >= 15) {
+          ctx.fillText('Keep flying, don\'t fall down', 10, c.height - 10);
+        } else if (timerID % 50 < 30 && timerID % 50 >= 25) {
+          ctx.fillText('Press Escape to Pause the game if necessary', 10, c.height - 10);
+        } else if (timerID % 50 < 40 && timerID % 50 >= 35) {
+          ctx.fillText('Avoid hitting them', 10, c.height - 10);
+        } else if (timerID % 50 >= 45) {
+          ctx.fillText('Left or right? You could try but it\'s dangerous', 10, c.height - 10);
+        }
+      }
+      ctx.restore();
+    }
+  </script>
+</body>
+
+</html>
